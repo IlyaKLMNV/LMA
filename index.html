@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+  <meta charset="utf-8" />
+  <title>Mistral 7B — мини-чат</title>
+  <style>
+    body { font: 16px/1.4 system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
+    #log { border: 1px solid #ccc; padding: 12px; min-height: 240px; white-space: pre-wrap; }
+    textarea { width: 100%; height: 90px; }
+    button { padding: 8px 14px; }
+  </style>
+  <h1>LM Assistant</h1>
+  <div id="log"></div>
+  <p><textarea id="input" placeholder="Enter your message..."></textarea></p>
+  <p><button id="send">Send</button></p>
+  <script>
+    // Plain fetch to your local proxy
+    const log = document.getElementById('log');
+    const input = document.getElementById('input');
+    const history = [];
+
+    async function send() {
+      const user = input.value.trim();
+      if (!user) return;
+      history.push({ role: "user", content: user });
+      input.value = ""; render();
+
+      const res = await fetch("http://127.0.0.1:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: history,
+          temperature: 0.3,
+          max_tokens: 400
+        })
+      });
+      const data = await res.json();
+      const msg = data.choices?.[0]?.message?.content || "(нет ответа)";
+      history.push({ role: "assistant", content: msg });
+      render();
+    }
+
+    function render() {
+      log.textContent = history
+        .map(m => (m.role === "user" ? "Вы: " : "Модель: ") + m.content)
+        .join("\n\n");
+    }
+
+    document.getElementById('send').onclick = send;
+  </script>
+</html>
