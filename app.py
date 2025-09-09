@@ -1,20 +1,14 @@
-# app.py
-# Minimal FastAPI proxy to Mistral's /v1/chat/completions with non-streaming calls.
-# Comments are in English per your request.
-
-import httpx
+import os, httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 
-# Hardcoded API key (you asked to keep it in code explicitly).
-MISTRAL_API_KEY = "0IAClm1qBDX927s7mGD61pegnbiFQEJe"
-
-# Base URL for Mistral API
+# Mistral API
+load_dotenv()
+MISTRAL_API_KEY = os.environ["LMA_MISTRAL_API_KEY"]
 MISTRAL_URL = "https://api.mistral.ai/v1"
-
-# Default 7B model (adjust if your account lists a different name in /v1/models)
 DEFAULT_MODEL = "open-mistral-7b"
 
 app = FastAPI(title="Mistral Chat Proxy")

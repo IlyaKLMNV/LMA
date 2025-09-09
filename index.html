@@ -41,7 +41,7 @@
 
     function render() {
       log.textContent = history
-        .map(m => (m.role === "user" ? "Вы: " : "Модель: ") + m.content)
+        .map(m => (m.role === "user" ? "You: " : "AI: ") + m.content)
         .join("\n\n");
     }
 
