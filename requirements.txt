@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+httpx
+python-dotenv
+qdrant-client
+numpy
+pyyaml
+pypdf
+python-docx
+beautifulsoup4
+html2text
+pandas
+tiktoken
+python-multipart
