@@ -1,0 +1,16 @@
+models:
+  default: chat-general
+
+  chat-general:
+    provider: mistral        # внутренняя метка драйвера
+    model: open-mistral-7b   # имя в твоём /models
+    temperature: 0.3
+    max_tokens: 512
+    cost_prompt_per_m: 0.2   # удобно для логов/метрик, опционально
+    cost_completion_per_m: 0.2
+
+  chat-strong:
+    provider: mistral
+    model: open-mixtral-8x7b # пример альтернативы
+    temperature: 0.3
+    max_tokens: 1024
