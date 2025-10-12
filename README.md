@@ -23,8 +23,10 @@ A minimal `index.html` is included — a simple browser chat that talks to the b
 
 ---
 
-## 🚀 Quick start (Docker Compose)
+## 🚀 Quick commands (Docker Compose)
+- `docker compose down` - Stops and removes containers and networks Stops and removes containers and networks of the current Compose project
+- `docker compose up -d` - Reads compose.yaml in the current key, builds images if necessary, creates/updates the network and containers, and starts services in the background (detached) without logging to the console
+- `docker compose up -d --build` - Builds images (if needed) and runs containers in the background.
+- `docker compose ps` - Shows the current status of services: whether they are running, which ports are forwarded, and container names.
 
-```bash
-docker compose up -d --build
 # Swagger: http://127.0.0.1:8000/docs

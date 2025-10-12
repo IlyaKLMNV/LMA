@@ -7,22 +7,35 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_storage:/qdrant/storage
+    # (опц.) если использовать снапшоты:
+    #  - qdrant_snapshots:/qdrant/snapshots
 
   api:
     build: .
     container_name: lma-api
     depends_on:
       - qdrant
+      # (опц.) healthcheck у qdrant, можно так:
+      # qdrant:
+      #   condition: service_started   # или service_healthy, если health
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      # внутри сети compose сервису api Qdrant доступен по имени "qdrant"
       - QDRANT_URL=http://qdrant:6333
+    working_dir: /app
     volumes:
-      - .:/app:ro
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - ./:/app
+    command: ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--reload"]
+    restart: unless-stopped
+    # (опц.) healthcheck у api без curl/wget — через сам Python:
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport sys,urllib.request\nu=urllib.request.urlopen('http://localhost:8000/health', timeout=3)\nsys.exit(0 if u.status==200 else 1)\nPY"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   qdrant_storage:
+  # qdrant_snapshots:
