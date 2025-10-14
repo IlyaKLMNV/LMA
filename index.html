@@ -1,50 +1,233 @@
 <!doctype html>
 <html lang="ru">
   <meta charset="utf-8" />
-  <title>Mistral 7B — мини-чат</title>
+  <title>Mistral 7B — демо</title>
   <style>
-    body { font: 16px/1.4 system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
-    #log { border: 1px solid #ccc; padding: 12px; min-height: 240px; white-space: pre-wrap; }
+    body { font: 16px/1.4 system-ui, sans-serif; max-width: 820px; margin: 32px auto; }
+    #log, #status {
+      border: 1px solid #ccc;
+      padding: 12px;
+      min-height: 220px;
+      white-space: pre-wrap;
+      background: #fafafa;
+    }
+    #status { margin-top: 16px; font-size: 14px; min-height: 160px; }
     textarea { width: 100%; height: 90px; }
     button { padding: 8px 14px; }
+    select { padding: 6px; }
   </style>
   <h1>LM Assistant</h1>
   <div id="log"></div>
-  <p><textarea id="input" placeholder="Enter your message..."></textarea></p>
-  <p><button id="send">Send</button></p>
+  <div id="status"></div>
+  <p><textarea id="input" placeholder="Введите вопрос…"></textarea></p>
+  <p>
+    <label>Режим:&nbsp;
+      <select id="mode">
+        <option value="rag" selected>RAG (контекст из Qdrant)</option>
+        <option value="chat">Только модель (/chat)</option>
+      </select>
+    </label>
+  </p>
+  <p>
+    <button id="send">Send</button>
+    <button id="clear" type="button">Clear</button>
+  </p>
   <script>
-    // Plain fetch to your local proxy
-    const log = document.getElementById('log');
-    const input = document.getElementById('input');
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    const inputEl = document.getElementById("input");
+    const modeEl = document.getElementById("mode");
+    const sendBtn = document.getElementById("send");
+    const clearBtn = document.getElementById("clear");
     const history = [];
+    const events = [];
+    const MAX_EVENTS = 50;
+    const EVENTS_EMPTY = "Журнал событий пуст. Запросы появятся здесь.";
+    const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
     async function send() {
-      const user = input.value.trim();
+      const user = inputEl.value.trim();
       if (!user) return;
-      history.push({ role: "user", content: user });
-      input.value = ""; render();
 
-      const res = await fetch("http://127.0.0.1:8000/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: history,
-          temperature: 0.3,
-          max_tokens: 400
-        })
+      history.push({ role: "user", content: user });
+      inputEl.value = "";
+      render();
+
+      sendBtn.disabled = true;
+      try {
+        logEvent("запрос пользователя", user);
+        if (modeEl.value === "chat") {
+          await handleChat(history);
+        } else {
+          await handleRag(user);
+        }
+      } catch (err) {
+        history.push({ role: "assistant", content: `Ошибка: ${err.message}` });
+        logEvent("ошибка", err.message || String(err));
+      } finally {
+        sendBtn.disabled = false;
+        render();
+        inputEl.focus();
+      }
+    }
+
+    async function handleChat(historySnapshot) {
+      const data = await callApi("http://127.0.0.1:8000/chat", {
+        messages: historySnapshot.map(({ role, content }) => ({ role, content })),
+        temperature: 0.3,
+        max_tokens: 400
       });
-      const data = await res.json();
       const msg = data.choices?.[0]?.message?.content || "(нет ответа)";
       history.push({ role: "assistant", content: msg });
-      render();
+    }
+
+    async function handleRag(question) {
+      const data = await callApi("http://127.0.0.1:8000/query_rag", {
+        question,
+        top_k: 4,
+        temperature: 0.2,
+        max_tokens: 400
+      });
+      const answer = data.answer || "(нет ответа)";
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      const info = sources.length ? formatSources(sources) : "";
+      history.push({ role: "assistant", content: answer + info });
+    }
+
+    function formatSources(sources) {
+      const lines = sources.map((src) => {
+        const score = typeof src.score === "number" ? src.score.toFixed(3) : "n/a";
+        const meta = src.metadata || {};
+        const parts = [];
+        if (meta.title) parts.push(meta.title);
+        if (meta.filename) parts.push(meta.filename);
+        if (meta.source) parts.push(meta.source);
+        if (meta.url) parts.push(meta.url);
+        const metaStr = parts.length ? parts.join(" · ") : JSON.stringify(meta);
+        return `[${src.ref}] score=${score} — ${metaStr}`;
+      });
+      return `\n\nИсточники:\n${lines.join("\n")}`;
     }
 
     function render() {
-      log.textContent = history
-        .map(m => (m.role === "user" ? "You: " : "AI: ") + m.content)
+      if (!history.length) {
+        logEl.textContent = "Чат пуст. Задайте вопрос.";
+        return;
+      }
+      logEl.textContent = history
+        .map((m) => (m.role === "user" ? "You: " : "AI: ") + m.content)
         .join("\n\n");
     }
 
-    document.getElementById('send').onclick = send;
+    async function callApi(endpoint, payload, { maxRetries = 2 } = {}) {
+      let attempt = 0;
+      let delayMs = 1500;
+      while (true) {
+        const attemptLabel = `попытка ${attempt + 1}`;
+        logEvent("выполняется запрос на сервер", `${endpoint} (${attemptLabel})`);
+        logEvent("ожидание получения ответа с сервера", `${endpoint} (${attemptLabel})`);
+
+        let response;
+        let rawBody = "";
+
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        } catch (transportError) {
+          logEvent("ошибка соединения", transportError.message || String(transportError));
+          if (attempt < maxRetries) {
+            await scheduleRetry(delayMs, endpoint, attemptLabel);
+            attempt += 1;
+            delayMs = Math.min(delayMs * 2, 10000);
+            continue;
+          }
+          throw transportError;
+        }
+
+        try {
+          rawBody = await response.text();
+        } catch (readErr) {
+          rawBody = `(ошибка чтения тела: ${readErr.message || readErr})`;
+        }
+
+        logEvent("тело ответа", summarizeBody(rawBody));
+
+        if (!response.ok) {
+          const retryable = RETRYABLE_STATUS.has(response.status);
+          const message = `HTTP ${response.status} — ${rawBody || "пустое тело"}`;
+          const title = response.status >= 500 ? "HTTP ошибка" : "ответ с ошибкой";
+          logEvent(title, message);
+          if (retryable && attempt < maxRetries) {
+            await scheduleRetry(delayMs, endpoint, attemptLabel);
+            attempt += 1;
+            delayMs = Math.min(delayMs * 2, 10000);
+            continue;
+          }
+          const error = new Error(message);
+          error.status = response.status;
+          error.body = rawBody;
+          throw error;
+        }
+
+        try {
+          const json = rawBody ? JSON.parse(rawBody) : {};
+          logEvent("ответ получен", `успешно (${endpoint})`);
+          return json;
+        } catch (parseError) {
+          logEvent("ошибка парсинга", parseError.message || String(parseError));
+          throw parseError;
+        }
+      }
+    }
+
+    async function scheduleRetry(delayMs, endpoint, attemptLabel) {
+      const seconds = (delayMs / 1000).toFixed(1);
+      logEvent("ограничение/повтор", `повтор для ${endpoint} через ${seconds}s (${attemptLabel})`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    function summarizeBody(body) {
+      if (!body) return "(пусто)";
+      const trimmed = body.trim();
+      if (!trimmed) return "(пусто)";
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return JSON.stringify(parsed, null, 2);
+        } catch {
+          // Ignore parse error, fall back to raw string.
+        }
+      }
+      return trimmed.length > 800 ? `${trimmed.slice(0, 800)}…` : trimmed;
+    }
+
+    function logEvent(title, detail = "") {
+      const stamp = new Date().toLocaleTimeString();
+      const entry = detail ? `${stamp} — ${title}: ${detail}` : `${stamp} — ${title}`;
+      events.push(entry);
+      if (events.length > MAX_EVENTS) events.shift();
+      statusEl.textContent = events.join("\n");
+    }
+
+    sendBtn.addEventListener("click", send);
+    clearBtn.addEventListener("click", () => {
+      history.length = 0;
+      events.length = 0;
+      render();
+      statusEl.textContent = EVENTS_EMPTY;
+      inputEl.focus();
+    });
+    inputEl.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter" && (evt.ctrlKey || evt.metaKey)) {
+        send();
+      }
+    });
+
+    statusEl.textContent = EVENTS_EMPTY;
+    render();
+    inputEl.focus();
   </script>
 </html>
