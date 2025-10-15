@@ -1,0 +1,21 @@
+{
+  "name": "LMA (api)",
+  "dockerComposeFile": ["../compose.yaml"],
+  "service": "api",
+  "workspaceFolder": "/app",
+  "overrideCommand": false,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "pip install -r requirements.txt",
+  "forwardPorts": [8000, 6333]
+}
